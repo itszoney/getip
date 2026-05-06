@@ -1,5 +1,7 @@
 import asyncio
 import os
+import subprocess
+import re
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -20,45 +22,35 @@ app = Client(
 )
 call_py = PyTgCalls(app)
 
-PRIVATE_HEX = ("00000000", "7F", "0A", "AC1", "C0A8")
 
-
-def get_udp_remote():
-    for path in ("/proc/net/udp", "/proc/net/udp6"):
-        try:
-            with open(path) as f:
-                for line in f:
-                    if line.strip().startswith("sl"):
-                        continue
-                    parts = line.split()
-                    if len(parts) < 3:
-                        continue
-                    remote = parts[2]
-                    if ":" not in remote:
-                        continue
-                    ip_hex, port_hex = remote.split(":")
-                    if ip_hex == "00000000":
-                        continue
-                    if any(ip_hex.startswith(p) for p in PRIVATE_HEX):
-                        continue
-                    if len(ip_hex) == 8:
-                        ip = ".".join(str(int(ip_hex[i:i+2], 16)) for i in (6, 4, 2, 0))
-                        port = int(port_hex, 16)
-                        if port == 0:
-                            continue
+async def capture_udp_ip(timeout=15):
+    proc = await asyncio.create_subprocess_exec(
+        "tcpdump", "-i", "any", "udp", "-n", "-q", "-l",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    pattern = re.compile(r'IP (\d+\.\d+\.\d+\.\d+)\.(\d+) > ')
+    private = ("10.", "172.", "192.168.", "127.")
+    try:
+        async def read():
+            async for line in proc.stdout:
+                line = line.decode()
+                m = pattern.search(line)
+                if m:
+                    ip, port = m.group(1), m.group(2)
+                    if not any(ip.startswith(p) for p in private):
                         return ip, port
-        except FileNotFoundError:
-            continue
-    return None, None
+            return None, None
 
-
-async def poll_udp(timeout=20, interval=0.5):
-    for _ in range(int(timeout / interval)):
-        ip, port = get_udp_remote()
-        if ip:
-            return ip, port
-        await asyncio.sleep(interval)
-    return None, None
+        ip, port = await asyncio.wait_for(read(), timeout=timeout)
+        return ip, port
+    except asyncio.TimeoutError:
+        return None, None
+    finally:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 
 @app.on_message(filters.command("getip") & filters.user(ALLOWED_USER))
@@ -80,7 +72,7 @@ async def getip_handler(_: Client, message: Message):
     except Exception as e:
         return await message.reply(f"Failed to join: {e}")
 
-    ip, port = await poll_udp(timeout=20, interval=0.5)
+    ip, port = await capture_udp_ip(timeout=15)
     if ip and port:
         await message.reply(f"{chat_id} {ip} {port}")
     else:
