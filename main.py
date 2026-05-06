@@ -19,6 +19,7 @@ app = Client(
 call_py = PyTgCalls(app)
 
 PRIVATE_HEX = ("00000000", "7F", "0A", "AC1", "C0A8")
+_connected = {}  # chat_id -> asyncio.Event
 
 
 def get_udp_remote():
@@ -50,13 +51,25 @@ def get_udp_remote():
     return None, None
 
 
-async def poll_udp(timeout=20, interval=1):
-    for _ in range(timeout):
+async def poll_udp(timeout=20, interval=0.5):
+    for _ in range(int(timeout / interval)):
         ip, port = get_udp_remote()
         if ip:
             return ip, port
         await asyncio.sleep(interval)
     return None, None
+
+
+@call_py.on_update()
+async def on_update(_, update):
+    try:
+        from ntgcalls import ConnectionState, CONNECTED
+        if hasattr(update, 'chat_id') and hasattr(update, 'state'):
+            if update.state == CONNECTED:
+                if update.chat_id in _connected:
+                    _connected[update.chat_id].set()
+    except Exception:
+        pass
 
 
 @app.on_message(filters.command("getip"))
@@ -69,6 +82,9 @@ async def getip_handler(_: Client, message: Message):
     except ValueError:
         return await message.reply("Invalid chat ID.")
 
+    event = asyncio.Event()
+    _connected[chat_id] = event
+
     try:
         await call_py.play(
             chat_id,
@@ -76,13 +92,31 @@ async def getip_handler(_: Client, message: Message):
             config=GroupCallConfig(auto_start=True)
         )
     except Exception as e:
+        _connected.pop(chat_id, None)
         return await message.reply(f"Failed to join: {e}")
 
-    ip, port = await poll_udp(timeout=20, interval=1)
+    # wait for connected event or timeout
+    try:
+        await asyncio.wait_for(event.wait(), timeout=15)
+        await message.reply("connected event fired, reading UDP...")
+    except asyncio.TimeoutError:
+        await message.reply("no connected event, reading UDP anyway...")
+
+    _connected.pop(chat_id, None)
+
+    ip, port = await poll_udp(timeout=10, interval=0.5)
     if ip and port:
         await message.reply(f"{chat_id} {ip} {port}")
     else:
-        await message.reply(f"{chat_id} no connection")
+        # dump raw for debug
+        raw = ""
+        for path in ("/proc/net/udp", "/proc/net/udp6"):
+            try:
+                with open(path) as f:
+                    raw += f"=={path}==\n{f.read()}"
+            except FileNotFoundError:
+                pass
+        await message.reply(f"no connection\n```\n{raw[:2000]}\n```")
 
     try:
         await call_py.leave_call(chat_id)
