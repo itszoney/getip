@@ -5,11 +5,13 @@ import subprocess
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pytgcalls import PyTgCalls, idle
-from pytgcalls.types import GroupCallConfig, MediaStream, AudioQuality
+from pytgcalls.types import GroupCallConfig, MediaStream
 
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 SESSION_STRING = os.environ["SESSION_STRING"]
+
+ALLOWED_USER = 5218610039
 
 app = Client(
     "py-tgcalls",
@@ -63,7 +65,6 @@ async def poll_udp(timeout=20, interval=0.5):
 def make_silence_file():
     path = "/tmp/silence.raw"
     if not os.path.exists(path):
-        # 10 seconds of silence, 48000hz, 16bit, stereo
         subprocess.run([
             "ffmpeg", "-y",
             "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
@@ -74,7 +75,7 @@ def make_silence_file():
     return path
 
 
-@app.on_message(filters.command("getip"))
+@app.on_message(filters.command("getip") & filters.user(ALLOWED_USER))
 async def getip_handler(_: Client, message: Message):
     parts = message.text.split()
     if len(parts) < 2:
@@ -89,7 +90,7 @@ async def getip_handler(_: Client, message: Message):
     try:
         await call_py.play(
             chat_id,
-            MediaStream(silence, audio_quality=AudioQuality.STUDIO),
+            MediaStream(silence),
             config=GroupCallConfig(auto_start=True)
         )
     except Exception as e:
