@@ -1,15 +1,11 @@
-from pyrogram import Client
-from pyrogram import filters
-from pyrogram.types import Message
+import asyncio
+import os
 
-from pytgcalls import filters as fl
-from pytgcalls import idle
-from pytgcalls import PyTgCalls
-from pytgcalls.types import ChatUpdate
-from pytgcalls.types import GroupCallParticipant
-from pytgcalls.types import StreamEnded
-from pytgcalls.types import Update
-from pytgcalls.types import UpdatedGroupCallParticipant
+from pyrogram import Client, filters
+from pyrogram.types import Message
+from pytgcalls import PyTgCalls, idle
+from pytgcalls.types import GroupCallConfig
+
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 SESSION_STRING = os.environ["SESSION_STRING"]
@@ -22,101 +18,44 @@ app = Client(
 )
 call_py = PyTgCalls(app)
 
-
-def _from_proc():
-    pid = os.getpid()
-    try:
-        with open(f"/proc/{pid}/net/udp", "r") as f:
-            for line in f:
-                if line.startswith("  sl"):
-                    continue
-                parts = line.split()
-                remote = parts[2]
-                ip_hex, port_hex = remote.split(":")
-                if ip_hex[:2] == "7F":
-                    continue
-                ip = ".".join(str(int(ip_hex[i:i+2], 16)) for i in (0, 2, 4, 6))
-                port = int(port_hex, 16)
-                return ip, port
-    except FileNotFoundError:
-        pass
-    return None, None
+PRIVATE_HEX = ("00000000", "7F", "0A", "AC1", "C0A8")
 
 
-def _from_psutil():
-    try:
-        import psutil
-    except ImportError:
-        return None, None
-    pid = os.getpid()
-    try:
-        proc = psutil.Process(pid)
-        for conn in proc.connections(kind="udp"):
-            if conn.raddr and not conn.raddr.ip.startswith(("127.", "0.", "192.168.", "10.", "172.")):
-                return conn.raddr.ip, conn.raddr.port
-    except Exception:
-        pass
-    return None, None
-
-
-def _from_ss():
-    pid = os.getpid()
-    try:
-        out = subprocess.check_output(
-            ["ss", "-tunp"],
-            stderr=subprocess.DEVNULL, text=True
-        )
-        for line in out.splitlines():
-            if f"pid={pid}" in line:
-                parts = line.split()
-                if len(parts) >= 5:
-                    peer = parts[4]
-                    if peer == "*:*" or peer.startswith("127."):
+def get_udp_remote():
+    for path in ("/proc/net/udp", "/proc/net/udp6"):
+        try:
+            with open(path) as f:
+                for line in f:
+                    if line.strip().startswith("sl"):
                         continue
-                    ip, port = peer.rsplit(":", 1)
-                    try:
-                        return ip, int(port)
-                    except ValueError:
+                    parts = line.split()
+                    if len(parts) < 3:
                         continue
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        pass
+                    remote = parts[2]
+                    if ":" not in remote:
+                        continue
+                    ip_hex, port_hex = remote.split(":")
+                    if ip_hex == "00000000":
+                        continue
+                    if any(ip_hex.startswith(p) for p in PRIVATE_HEX):
+                        continue
+                    if len(ip_hex) == 8:
+                        ip = ".".join(str(int(ip_hex[i:i+2], 16)) for i in (6, 4, 2, 0))
+                        port = int(port_hex, 16)
+                        if port == 0:
+                            continue
+                        return ip, port
+        except FileNotFoundError:
+            continue
     return None, None
 
 
-def _from_lsof():
-    pid = os.getpid()
-    try:
-        out = subprocess.check_output(
-            ["lsof", "-i", "UDP", "-a", "-p", str(pid), "-n", "-P"],
-            stderr=subprocess.DEVNULL, text=True
-        )
-        for line in out.splitlines():
-            if "UDP" in line and "->" in line:
-                arrow_idx = line.index("->")
-                remote = line[arrow_idx+2:].strip()
-                ip, port = remote.rsplit(":", 1)
-                if ip.startswith("127."):
-                    continue
-                try:
-                    return ip, int(port)
-                except ValueError:
-                    continue
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        pass
-    return None, None
-
-
-def get_voice_remote_addr():
-    methods = [
-        _from_proc,
-        _from_psutil,
-        _from_ss,
-        _from_lsof,
-    ]
-    for method in methods:
-        ip, port = method()
+async def poll_udp(timeout=20, interval=1):
+    for _ in range(timeout):
+        ip, port = get_udp_remote()
         if ip:
             return ip, port
+        await asyncio.sleep(interval)
     return None, None
 
 
@@ -130,15 +69,31 @@ async def getip_handler(_: Client, message: Message):
     except ValueError:
         return await message.reply("Invalid chat ID.")
 
-    await call_py.join_group_call(chat_id)
-    await asyncio.sleep(3)
-    ip, port = get_voice_remote_addr()
+    try:
+        await call_py.play(
+            chat_id,
+            stream=None,
+            config=GroupCallConfig(auto_start=True)
+        )
+    except Exception as e:
+        return await message.reply(f"Failed to join: {e}")
+
+    ip, port = await poll_udp(timeout=20, interval=1)
     if ip and port:
         await message.reply(f"{chat_id} {ip} {port}")
     else:
         await message.reply(f"{chat_id} no connection")
-    await call_py.leave_call(chat_id)
+
+    try:
+        await call_py.leave_call(chat_id)
+    except Exception:
+        pass
 
 
-call_py.start()
-idle()
+async def main():
+    await app.start()
+    await call_py.start()
+    await idle()
+
+
+asyncio.get_event_loop().run_until_complete(main())
