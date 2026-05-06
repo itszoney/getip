@@ -1,6 +1,5 @@
 import asyncio
 import os
-import subprocess
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -62,19 +61,6 @@ async def poll_udp(timeout=20, interval=0.5):
     return None, None
 
 
-def make_silence_file():
-    path = "/tmp/silence.raw"
-    if not os.path.exists(path):
-        subprocess.run([
-            "ffmpeg", "-y",
-            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
-            "-t", "3600",
-            "-f", "s16le", "-ar", "48000", "-ac", "2",
-            path
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return path
-
-
 @app.on_message(filters.command("getip") & filters.user(ALLOWED_USER))
 async def getip_handler(_: Client, message: Message):
     parts = message.text.split()
@@ -85,12 +71,10 @@ async def getip_handler(_: Client, message: Message):
     except ValueError:
         return await message.reply("Invalid chat ID.")
 
-    silence = make_silence_file()
-
     try:
         await call_py.play(
             chat_id,
-            MediaStream(silence),
+            MediaStream("/dev/zero"),
             config=GroupCallConfig(auto_start=True)
         )
     except Exception as e:
