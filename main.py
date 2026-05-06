@@ -1,6 +1,5 @@
 import asyncio
 import os
-import subprocess
 import re
 
 from pyrogram import Client, filters
@@ -23,20 +22,19 @@ app = Client(
 call_py = PyTgCalls(app)
 
 
-async def capture_udp_ip(timeout=15):
+async def capture_udp_ip(timeout=20):
     proc = await asyncio.create_subprocess_exec(
         "tcpdump", "-i", "any", "udp", "-n", "-q", "-l",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )
-    pattern = re.compile(r'IP (\d+\.\d+\.\d+\.\d+)\.(\d+) > ')
+    pattern = re.compile(r'IP (\d+\.\d+\.\d+\.\d+)\.(\d+)')
     private = ("10.", "172.", "192.168.", "127.")
     try:
         async def read():
             async for line in proc.stdout:
                 line = line.decode()
-                m = pattern.search(line)
-                if m:
+                for m in pattern.finditer(line):
                     ip, port = m.group(1), m.group(2)
                     if not any(ip.startswith(p) for p in private):
                         return ip, port
@@ -63,6 +61,9 @@ async def getip_handler(_: Client, message: Message):
     except ValueError:
         return await message.reply("Invalid chat ID.")
 
+    capture_task = asyncio.create_task(capture_udp_ip(timeout=20))
+    await asyncio.sleep(0.5)
+
     try:
         await call_py.play(
             chat_id,
@@ -70,9 +71,10 @@ async def getip_handler(_: Client, message: Message):
             config=GroupCallConfig(auto_start=True)
         )
     except Exception as e:
+        capture_task.cancel()
         return await message.reply(f"Failed to join: {e}")
 
-    ip, port = await capture_udp_ip(timeout=15)
+    ip, port = await capture_task
     if ip and port:
         await message.reply(f"{chat_id} {ip} {port}")
     else:
