@@ -1,10 +1,11 @@
 import asyncio
 import os
+import subprocess
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pytgcalls import PyTgCalls, idle
-from pytgcalls.types import GroupCallConfig
+from pytgcalls.types import GroupCallConfig, MediaStream, AudioQuality
 
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
@@ -19,7 +20,6 @@ app = Client(
 call_py = PyTgCalls(app)
 
 PRIVATE_HEX = ("00000000", "7F", "0A", "AC1", "C0A8")
-_connected = {}  # chat_id -> asyncio.Event
 
 
 def get_udp_remote():
@@ -60,16 +60,18 @@ async def poll_udp(timeout=20, interval=0.5):
     return None, None
 
 
-@call_py.on_update()
-async def on_update(_, update):
-    try:
-        from ntgcalls import ConnectionState, CONNECTED
-        if hasattr(update, 'chat_id') and hasattr(update, 'state'):
-            if update.state == CONNECTED:
-                if update.chat_id in _connected:
-                    _connected[update.chat_id].set()
-    except Exception:
-        pass
+def make_silence_file():
+    path = "/tmp/silence.raw"
+    if not os.path.exists(path):
+        # 10 seconds of silence, 48000hz, 16bit, stereo
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+            "-t", "3600",
+            "-f", "s16le", "-ar", "48000", "-ac", "2",
+            path
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return path
 
 
 @app.on_message(filters.command("getip"))
@@ -82,41 +84,22 @@ async def getip_handler(_: Client, message: Message):
     except ValueError:
         return await message.reply("Invalid chat ID.")
 
-    event = asyncio.Event()
-    _connected[chat_id] = event
+    silence = make_silence_file()
 
     try:
         await call_py.play(
             chat_id,
-            stream=None,
+            MediaStream(silence, audio_quality=AudioQuality.STUDIO),
             config=GroupCallConfig(auto_start=True)
         )
     except Exception as e:
-        _connected.pop(chat_id, None)
         return await message.reply(f"Failed to join: {e}")
 
-    # wait for connected event or timeout
-    try:
-        await asyncio.wait_for(event.wait(), timeout=15)
-        await message.reply("connected event fired, reading UDP...")
-    except asyncio.TimeoutError:
-        await message.reply("no connected event, reading UDP anyway...")
-
-    _connected.pop(chat_id, None)
-
-    ip, port = await poll_udp(timeout=10, interval=0.5)
+    ip, port = await poll_udp(timeout=20, interval=0.5)
     if ip and port:
         await message.reply(f"{chat_id} {ip} {port}")
     else:
-        # dump raw for debug
-        raw = ""
-        for path in ("/proc/net/udp", "/proc/net/udp6"):
-            try:
-                with open(path) as f:
-                    raw += f"=={path}==\n{f.read()}"
-            except FileNotFoundError:
-                pass
-        await message.reply(f"no connection\n```\n{raw[:2000]}\n```")
+        await message.reply(f"{chat_id} no connection")
 
     try:
         await call_py.leave_call(chat_id)
