@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 from pyrogram import Client, filters
+from pyrogram.errors import RPCError
 from pyrogram.types import Message
 from pytgcalls import PyTgCalls, idle
 from pytgcalls.types import GroupCallConfig, MediaStream
@@ -106,9 +107,9 @@ async def getip_command(c: Client, m: Message):
 
     try:
         member = await bot.get_chat_member(ALLOWED_GROUP, m.from_user.id)
-        if member.status in ("left", "kicked"):
+        if member.status in ("left", "kicked", "restricted"):
             return await m.reply("You must join the allowed group before using /getip.")
-    except Exception:
+    except RPCError:
         return await m.reply("You must join the allowed group before using /getip.")
 
     parts = m.text.split()
