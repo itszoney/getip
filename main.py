@@ -102,15 +102,17 @@ async def approve_user(c: Client, m: Message):
 
 @bot.on_message(filters.command("getip") & filters.create(auth_filter))
 async def getip_command(c: Client, m: Message):
+    join_required_msg = "You must join the allowed group before using /getip."
+
     if not m.from_user:
         return await m.reply("Unable to verify your account for this command.")
 
     try:
         member = await bot.get_chat_member(ALLOWED_GROUP, m.from_user.id)
-        if member.status not in ("member", "administrator", "owner", "creator"):
-            return await m.reply("You must join the allowed group before using /getip.")
+        if member.status not in ("member", "administrator", "creator"):
+            return await m.reply(join_required_msg)
     except UserNotParticipant:
-        return await m.reply("You must join the allowed group before using /getip.")
+        return await m.reply(join_required_msg)
     except RPCError:
         return await m.reply("Unable to verify your group membership right now. Please try again later.")
 
