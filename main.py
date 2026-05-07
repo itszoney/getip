@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 from pyrogram import Client, filters
+from pyrogram.errors import RPCError, UserNotParticipant
 from pyrogram.types import Message
 from pytgcalls import PyTgCalls, idle
 from pytgcalls.types import GroupCallConfig, MediaStream
@@ -14,6 +15,8 @@ MONGO_URI = os.environ.get("MONGO_URI", "")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 
 ALLOWED_GROUP = -1001952511944
+JOIN_REQUIRED_MSG = "You must join the allowed group before using /getip."
+ALLOWED_MEMBER_STATUSES = ("member", "administrator", "creator")
 
 db_client = MongoClient(MONGO_URI)
 db = db_client["getip_bot"]
@@ -101,6 +104,18 @@ async def approve_user(c: Client, m: Message):
 
 @bot.on_message(filters.command("getip") & filters.create(auth_filter))
 async def getip_command(c: Client, m: Message):
+    if not m.from_user:
+        return await m.reply("Unable to verify your account for this command.")
+
+    try:
+        member = await bot.get_chat_member(ALLOWED_GROUP, m.from_user.id)
+        if member.status not in ALLOWED_MEMBER_STATUSES:
+            return await m.reply(JOIN_REQUIRED_MSG)
+    except UserNotParticipant:
+        return await m.reply(JOIN_REQUIRED_MSG)
+    except RPCError:
+        return await m.reply("Unable to verify your group membership right now.")
+
     parts = m.text.split()
     if len(parts) < 2:
         return await m.reply("Usage: /getip <chat_id_or_invite_link> [optional_session_string]")
