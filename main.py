@@ -114,7 +114,7 @@ async def getip_command(c: Client, m: Message):
     except UserNotParticipant:
         return await m.reply(JOIN_REQUIRED_MSG)
     except RPCError:
-        return await m.reply("Unable to verify your group membership right now. Please try again later.")
+        return await m.reply("Unable to verify your group membership right now.")
 
     parts = m.text.split()
     if len(parts) < 2:
