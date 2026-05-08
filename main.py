@@ -488,8 +488,14 @@ async def getip_command(c: Client, m: Message):
             pass
 
     if not success:
-        if "USER_NOT_PARTICIPANT" in error_msg or "CHAT_WRITE_FORBIDDEN" in error_msg:
-            # ── Assistant not in group — Hindi failure message ──
+        if any(code in error_msg for code in (
+            "USER_NOT_PARTICIPANT",
+            "CHAT_WRITE_FORBIDDEN",
+            "CHANNEL_INVALID",
+            "CHAT_ID_INVALID",
+            "PEER_ID_INVALID",
+        )):
+            # ── Group/channel access error — Hindi failure message ──
             await status_msg.edit(
                 f"❌ **Assistant Us Group Mein Nahi Hai!**\n\n"
                 + FAILURE_MSG
@@ -528,3 +534,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(main())
+
