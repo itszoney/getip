@@ -257,9 +257,9 @@ async def capture_udp_ip(timeout=20):
 FAILURE_MSG = (
     "🔴 **Hum aapke us private group mein join nahi hain.**\n\n"
     "**Kriyapiya niche diye options try karein:**\n"
-    "├ `/getip <invite_link>` — Invite link dale or approve kre fir dubara /getip <chutid> dalne se join karke IP lein\n"
-    "├ `/getip <chat_id>` — Agar assistant already group mein ho\n"
-    "└ `/getip <chat_id> <session>` — Apna Pyrogram session use karein\n\n"
+    "├ `/getip invite_link` — Invite link dale or approve kre fir dubara /getip chut_id dalne se join karke IP lein\n"
+    "├ `/getip chut_id — Agar assistant already group mein ho\n"
+    "└ `/getip chat_id session ` — Apna Pyrogram session use karein\n\n"
     "📌 **Apna session string kaise lein?**\n"
     "→ @ArchStringBot se apna session string generate karein\n\n"
     "🔒 _Hum aapka session store nahi karte. Isliye har baar fresh IP ke liye "
