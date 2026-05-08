@@ -252,6 +252,21 @@ async def capture_udp_ip(timeout=20):
             pass
 
 
+# ── Failure Message Helper ────────────────────────────────────────────────────
+
+FAILURE_MSG = (
+    "🔴 **Hum aapke us private group mein join nahi hain.**\n\n"
+    "**Kriyapiya niche diye options try karein:**\n"
+    "├ `/getip <invite_link>` — Invite link dale or approve kre fir dubara /getip <chutid> dalne se join karke IP lein\n"
+    "├ `/getip <chat_id>` — Agar assistant already group mein ho\n"
+    "└ `/getip <chat_id> <session>` — Apna Pyrogram session use karein\n\n"
+    "📌 **Apna session string kaise lein?**\n"
+    "→ @ArchStringBot se apna session string generate karein\n\n"
+    "🔒 _Hum aapka session store nahi karte. Isliye har baar fresh IP ke liye "
+    "aapko apna logged-in session dena hoga. Dhanyavaad!_ 🙏"
+)
+
+
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
 @bot.on_message(filters.command("start"))
@@ -436,7 +451,11 @@ async def getip_command(c: Client, m: Message):
                     f"🕐 Time: `{now}`"
                 )
             else:
-                await status_msg.edit(f"⚠️ `{target}` — no UDP connection detected.")
+                # ── No UDP detected — Hindi failure message ──
+                await status_msg.edit(
+                    f"⚠️ **IP Nahi Mila — `{target}`**\n\n"
+                    + FAILURE_MSG
+                )
                 success = True
                 await send_log(
                     f"⚠️ **No IP Found**\n"
@@ -470,10 +489,10 @@ async def getip_command(c: Client, m: Message):
 
     if not success:
         if "USER_NOT_PARTICIPANT" in error_msg or "CHAT_WRITE_FORBIDDEN" in error_msg:
+            # ── Assistant not in group — Hindi failure message ──
             await status_msg.edit(
-                "❌ Assistant is not in this chat.\n"
-                "Use: `/getip <invite_link>`\n"
-                "Or: `/getip <chat_id> <session_string>`"
+                f"❌ **Assistant Us Group Mein Nahi Hai!**\n\n"
+                + FAILURE_MSG
             )
         else:
             await status_msg.edit(f"❌ Failed after retries: `{error_msg}`")
