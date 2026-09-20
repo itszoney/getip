@@ -9,6 +9,9 @@ from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
 
+_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(_loop)
+
 from cachetools import TTLCache
 from dotenv import load_dotenv
 from pyrogram import Client, enums, filters
@@ -372,7 +375,7 @@ async def do_capture(chat_id, pool):
 async def capture_chat(chat_id):
     if chat_id in _inflight:
         return await _inflight[chat_id]
-    fut = asyncio.get_event_loop().create_future()
+    fut = _loop.create_future()
     _inflight[chat_id] = fut
     try:
         pool = pick_pool()
@@ -415,14 +418,14 @@ async def enqueue(chat_id):
     cached = _cache.get(chat_id)
     if cached:
         return cached
-    fut = asyncio.get_event_loop().create_future()
+    fut = _loop.create_future()
     await _queue.put((chat_id, fut))
     return await asyncio.wait_for(fut, timeout=REQ_TIMEOUT)
 
 
 def start_workers():
     for _ in range(WORKERS):
-        asyncio.create_task(worker())
+        _loop.create_task(worker())
 
 
 FAILURE = (
@@ -851,9 +854,14 @@ async def main():
     log_async(f"🚀 **Bot Online** @{me.username}\n🕐 `{now_str()}`")
     await load_assistants()
     start_workers()
-    asyncio.create_task(health_loop())
+    _loop.create_task(health_loop())
     await idle()
 
 
 if __name__ == "__main__":
-    bot.run(main())
+    try:
+        _loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        _loop.close()
