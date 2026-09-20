@@ -2,11 +2,15 @@ import asyncio
 import ipaddress
 import logging
 import os
+import platform
 import re
+import subprocess
+import sys
 import time
 from collections import deque
 from datetime import datetime, timedelta
 from functools import wraps
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 _loop = asyncio.new_event_loop()
@@ -490,6 +494,18 @@ async def help_dm(c, m):
     )
 
 
+@bot.on_message(filters.private & filters.text & filters.regex(r"^❓ Help$"))
+async def help_button(c, m):
+    await m.reply(
+        "**Commands**\n\n"
+        "`/start` — share a group\n"
+        "`/getip <chat_id>` — direct capture\n"
+        "`/getip <invite_link>` — join & capture\n"
+        "`/getip <chat_id> <session>` — use your session",
+        parse_mode=enums.ParseMode.MARKDOWN,
+    )
+
+
 @bot.on_message(filters.command("approve") & filters.user(ADMIN_ID))
 async def approve(c, m):
     p = m.text.split()
@@ -501,9 +517,85 @@ async def approve(c, m):
     await m.reply(f"User `{p[1]}` → `{p[2]}`")
 
 
+@bot.on_message(filters.command("libs") & filters.user(ADMIN_ID))
+async def libs_cmd(c, m):
+    packages = [
+        "kurigram",
+        "pyrogram",
+        "py-tgcalls",
+        "tgcrypto",
+        "pymongo",
+        "python-dotenv",
+        "cachetools",
+        "pytgcalls-ntg",
+    ]
+    lines = [
+        f"**Python** `{sys.version.split()[0]}`",
+        f"**Platform** `{platform.system()} {platform.release()}`",
+        f"**Arch** `{platform.machine()}`",
+        "",
+        "**Libraries**",
+    ]
+    for pkg in packages:
+        try:
+            v = version(pkg)
+            lines.append(f"`{pkg}` → `{v}`")
+        except PackageNotFoundError:
+            lines.append(f"`{pkg}` → `not installed`")
+
+    lines.append("")
+    lines.append("**System**")
+    try:
+        r = subprocess.run(
+            ["tcpdump", "--version"], capture_output=True, text=True, timeout=5
+        )
+        td = r.stdout.splitlines()[0] if r.stdout else "unknown"
+    except Exception:
+        td = "missing"
+    lines.append(f"`tcpdump` → `{td}`")
+    try:
+        r = subprocess.run(
+            ["getcap", "/usr/sbin/tcpdump"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        cap = r.stdout.strip() or "no caps"
+    except Exception:
+        cap = "unknown"
+    lines.append(f"`tcpdump caps` → `{cap}`")
+
+    lines.append("")
+    lines.append("**Runtime**")
+    lines.append(f"Assistants loaded: `{len(assistants)}`")
+    lines.append(f"Active calls: `{len(calls)}`")
+    lines.append(f"Queue size: `{_queue.qsize()}`")
+    lines.append(f"Cache entries: `{len(_cache)}`")
+    lines.append(f"In-flight captures: `{len(_inflight)}`")
+
+    await m.reply("\n".join(lines), parse_mode=enums.ParseMode.MARKDOWN)
+
+
+@bot.on_message(filters.command("piplist") & filters.user(ADMIN_ID))
+async def piplist_cmd(c, m):
+    try:
+        r = subprocess.run(
+            [sys.executable, "-m", "pip", "list", "--format=freeze"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        out = r.stdout.strip()
+        if len(out) > 3500:
+            out = out[:3500] + "\n…truncated"
+        await m.reply(f"```\n{out}\n```", parse_mode=enums.ParseMode.MARKDOWN)
+    except Exception as e:
+        await m.reply(f"❌ `{redact(str(e))}`")
+
+
 @bot.on_message(filters.private & filters.service)
 async def on_share(c, m):
-    if m.service_type != MessageServiceType.CHAT_SHARED or not m.chat_shared:
+    if m.service != MessageServiceType.CHAT_SHARED or not m.chat_shared:
         return
     if m.chat_shared.button_id != 1:
         return
@@ -627,7 +719,8 @@ async def cb(c, q):
 @bot.on_message(
     filters.private
     & filters.text
-    & ~filters.command(["start", "getip", "approve", "help"])
+    & ~filters.command(["start", "getip", "approve", "help", "libs", "piplist"])
+    & ~filters.regex(r"^❓ Help$")
 )
 async def fallback_text(c, m):
     if not m.from_user:
