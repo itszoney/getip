@@ -622,7 +622,9 @@ async def cb(c, q):
 
 
 @bot.on_message(
-    filters.private & filters.text & ~filters.command(["start", "getip", "approve", "help"])
+    filters.private
+    & filters.text
+    & ~filters.command(["start", "getip", "approve", "help"])
 )
 async def fallback_text(c, m):
     if not m.from_user:
@@ -854,4 +856,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    bot.run(main())
