@@ -1,25 +1,32 @@
-import asyncio, os, re, time, ipaddress, logging
+import asyncio
+import ipaddress
+import logging
+import os
+import re
+import time
 from collections import deque
-from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from functools import wraps
+from pathlib import Path
 
-from pyrogram import Client, filters, enums
-from pyrogram.errors import RPCError, UserNotParticipant, FloodWait
-from pyrogram.types import (
-    Message, CallbackQuery,
-    ReplyKeyboardMarkup, KeyboardButton, KeyboardButtonRequestChat,
-    KeyboardButtonStyle,
-    InlineKeyboardMarkup, InlineKeyboardButton,
-)
-from pyrogram.enums import MessageServiceType
-
-from pytgcalls import PyTgCalls, idle
-from pytgcalls.types import GroupCallConfig
-from pytgcalls.exceptions import NoActiveGroupCall
-
-from pymongo import MongoClient
 from cachetools import TTLCache
+from dotenv import load_dotenv
+from pyrogram import Client, enums, filters
+from pyrogram.enums import ButtonStyle, MessageServiceType
+from pyrogram.errors import FloodWait, RPCError, UserNotParticipant
+from pyrogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    KeyboardButtonRequestChat,
+    Message,
+    ReplyKeyboardMarkup,
+)
+from pymongo import MongoClient
+from pytgcalls import PyTgCalls, idle
+from pytgcalls.exceptions import NoActiveGroupCall
+from pytgcalls.types import GroupCallConfig
 
 load_dotenv()
 
@@ -32,7 +39,10 @@ LOG_GROUP_ID = int(os.environ.get("LOG_GROUP_ID", 0))
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
 ALLOWED_GROUP = int(os.environ.get("ALLOWED_GROUP", 0))
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 log = logging.getLogger(__name__)
 
 db = MongoClient(MONGO_URI)["getip_bot"]
@@ -41,18 +51,27 @@ assistants_db = db["assistants"]
 invite_db = db["invites"]
 rate_db = db["rates"]
 
-OK_STATUS = (enums.ChatMemberStatus.MEMBER,
-             enums.ChatMemberStatus.ADMINISTRATOR,
-             enums.ChatMemberStatus.OWNER)
+OK_STATUS = (
+    enums.ChatMemberStatus.MEMBER,
+    enums.ChatMemberStatus.ADMINISTRATOR,
+    enums.ChatMemberStatus.OWNER,
+)
 
 USER_BURST = (3, 60)
 USER_HOURLY = (15, 3600)
 CHAT_BURST = (10, 300)
 GLOBAL_BURST = 60
 
-SFU_NETS = [ipaddress.ip_network(x) for x in (
-    "91.108.16.0/22", "91.108.20.0/22", "91.108.24.0/22", "149.154.160.0/20"
-)]
+SFU_NETS = [
+    ipaddress.ip_network(x)
+    for x in (
+        "91.108.16.0/22",
+        "91.108.20.0/22",
+        "91.108.24.0/22",
+        "149.154.160.0/20",
+    )
+]
+
 SFU_REGION = {
     "91.108.16.0/22": "Amsterdam (EU)",
     "91.108.20.0/22": "Singapore (APAC)",
@@ -66,7 +85,13 @@ CAPTURE_TIMEOUT = 4
 WORKERS = 2
 COOLDOWN = 60
 
-bot = Client("bot_wrapper", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+bot = Client(
+    "bot_wrapper",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
+)
+
 assistants = []
 calls = {}
 
@@ -79,8 +104,8 @@ _global_hits = deque()
 _queue = asyncio.Queue()
 pending = {}
 
-TG_RE = re.compile(r'IP (\d+\.\d+\.\d+\.\d+)\.(\d+) > (\d+\.\d+\.\d+\.\d+)\.(\d+)')
-REDACT_RE = re.compile(r'[A-Za-z0-9_\-]{80,}')
+TG_RE = re.compile(r"IP (\d+\.\d+\.\d+\.\d+)\.(\d+) > (\d+\.\d+\.\d+\.\d+)\.(\d+)")
+REDACT_RE = re.compile(r"[A-Za-z0-9_\-]{80,}")
 
 
 def redact(s):
@@ -160,6 +185,7 @@ def rate_limited(func):
         if not ok:
             return await m.reply(f"⏳ Hourly limit. Try in **{v}s**.")
         return await func(c, m, *a, **k)
+
     return w
 
 
@@ -186,8 +212,14 @@ async def invite_link(cid):
     if c and c.get("expire") and c["expire"] > now:
         return c["link"]
     exp = now + timedelta(days=7)
-    obj = await floodwait(bot.create_chat_invite_link(cid, name="Force Sub", expire_date=exp))
-    invite_db.update_one({"_id": cid}, {"$set": {"link": obj.invite_link, "expire": exp}}, upsert=True)
+    obj = await floodwait(
+        bot.create_chat_invite_link(cid, name="Force Sub", expire_date=exp)
+    )
+    invite_db.update_one(
+        {"_id": cid},
+        {"$set": {"link": obj.invite_link, "expire": exp}},
+        upsert=True,
+    )
     return obj.invite_link
 
 
@@ -207,14 +239,23 @@ async def force_sub(uid):
 
 async def load_assistants():
     if SESSION_STRING:
-        a = Client("assistant_env", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
+        a = Client(
+            "assistant_env",
+            api_id=API_ID,
+            api_hash=API_HASH,
+            session_string=SESSION_STRING,
+        )
         await a.start()
         assistants.append(a)
         calls[a] = PyTgCalls(a)
         await calls[a].start()
     for ast in assistants_db.find():
-        a = Client(f"assistant_{ast['_id']}", api_id=API_ID, api_hash=API_HASH,
-                   session_string=ast["session_string"])
+        a = Client(
+            f"assistant_{ast['_id']}",
+            api_id=API_ID,
+            api_hash=API_HASH,
+            session_string=ast["session_string"],
+        )
         await a.start()
         assistants.append(a)
         calls[a] = PyTgCalls(a)
@@ -237,8 +278,10 @@ async def health_loop():
             except Exception:
                 assistants.remove(a)
                 calls.pop(a, None)
-                try: await a.stop()
-                except Exception: pass
+                try:
+                    await a.stop()
+                except Exception:
+                    pass
         await asyncio.sleep(300)
 
 
@@ -264,25 +307,40 @@ def region(ip):
 async def capture_ip(timeout=CAPTURE_TIMEOUT):
     async with _sem:
         p = await asyncio.create_subprocess_exec(
-            "tcpdump", "-i", "any", "-n", "-q", "-l", "-c", "20",
-            "-Q", "out", "-s", "96",
+            "tcpdump",
+            "-i",
+            "any",
+            "-n",
+            "-q",
+            "-l",
+            "-c",
+            "20",
+            "-Q",
+            "out",
+            "-s",
+            "96",
             "udp and not dst net 10.0.0.0/8 and not dst net 172.16.0.0/12 "
             "and not dst net 192.168.0.0/16 and not dst net 127.0.0.0/8",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
         )
         try:
+
             async def reader():
                 async for raw in p.stdout:
                     m = TG_RE.search(raw.decode())
                     if m and is_sfu(m.group(3)):
                         return m.group(3), m.group(4)
                 return None, None
+
             return await asyncio.wait_for(reader(), timeout=timeout)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             return None, None
         finally:
-            try: p.kill()
-            except Exception: pass
+            try:
+                p.kill()
+            except Exception:
+                pass
 
 
 async def do_capture(chat_id, pool):
@@ -296,8 +354,10 @@ async def do_capture(chat_id, pool):
                 task.cancel()
                 return None, None, None
             ip, port = await task
-            try: await call.leave_call(chat_id)
-            except Exception: pass
+            try:
+                await call.leave_call(chat_id)
+            except Exception:
+                pass
             _last_used[app] = time.time()
             return (ip, port, region(ip)) if ip else (None, None, None)
         except FloodWait as e:
@@ -319,10 +379,12 @@ async def capture_chat(chat_id):
         if not pool:
             raise RuntimeError("all assistants in cooldown")
         res = await do_capture(chat_id, pool)
-        if not fut.done(): fut.set_result(res)
+        if not fut.done():
+            fut.set_result(res)
         return res
     except Exception as e:
-        if not fut.done(): fut.set_exception(e)
+        if not fut.done():
+            fut.set_exception(e)
         raise
     finally:
         _inflight.pop(chat_id, None)
@@ -334,14 +396,17 @@ async def worker():
         try:
             cached = _cache.get(chat_id)
             if cached:
-                if not fut.done(): fut.set_result(cached)
+                if not fut.done():
+                    fut.set_result(cached)
                 continue
             res = await capture_chat(chat_id)
             if res[0]:
                 _cache[chat_id] = res
-            if not fut.done(): fut.set_result(res)
+            if not fut.done():
+                fut.set_result(res)
         except Exception as e:
-            if not fut.done(): fut.set_exception(e)
+            if not fut.done():
+                fut.set_exception(e)
         finally:
             _queue.task_done()
 
@@ -377,23 +442,48 @@ async def start_group(c, m):
 
 @bot.on_message(filters.command("start") & filters.private)
 async def start_dm(c, m):
-    if not m.from_user: return
+    if not m.from_user:
+        return
     used, lim = user_stats(m.from_user.id)
     kb = ReplyKeyboardMarkup(
-        [[KeyboardButton("📤 Share Chat",
-            request_chat=KeyboardButtonRequestChat(
-                button_id=1, chat_is_channel=False, chat_is_forum=None,
-                request_title=True, request_username=True, request_photo=True),
-            style=KeyboardButtonStyle(bg_primary=True))],
-         [KeyboardButton("❓ Help", style=KeyboardButtonStyle(bg_success=True))]],
+        [
+            [
+                KeyboardButton(
+                    "📤 Share Chat",
+                    request_chat=KeyboardButtonRequestChat(
+                        button_id=1,
+                        chat_is_channel=False,
+                        chat_is_forum=None,
+                        request_title=True,
+                        request_username=True,
+                        request_photo=True,
+                    ),
+                    style=ButtonStyle.PRIMARY,
+                )
+            ],
+            [KeyboardButton("❓ Help", style=ButtonStyle.SUCCESS)],
+        ],
         resize_keyboard=True,
         placeholder="Tap Share Chat…",
     )
     await m.reply(
         f"👋 **{m.from_user.first_name}**\n\n"
-        f"used `{used}` / limit `{lim}` / left `{max(0, lim-used)}`\n\n"
+        f"used `{used}` / limit `{lim}` / left `{max(0, lim - used)}`\n\n"
         f"Tap **📤 Share Chat** to pick a group.",
-        reply_markup=kb, parse_mode=enums.ParseMode.MARKDOWN,
+        reply_markup=kb,
+        parse_mode=enums.ParseMode.MARKDOWN,
+    )
+
+
+@bot.on_message(filters.command("help") & filters.private)
+async def help_dm(c, m):
+    await m.reply(
+        "**Commands**\n\n"
+        "`/start` — share a group\n"
+        "`/getip <chat_id>` — direct capture\n"
+        "`/getip <invite_link>` — join & capture\n"
+        "`/getip <chat_id> <session>` — use your session",
+        parse_mode=enums.ParseMode.MARKDOWN,
     )
 
 
@@ -402,7 +492,9 @@ async def approve(c, m):
     p = m.text.split()
     if len(p) < 3:
         return await m.reply("Usage: /approve <uid> <limit>")
-    users_db.update_one({"_id": int(p[1])}, {"$set": {"limit": int(p[2])}}, upsert=True)
+    users_db.update_one(
+        {"_id": int(p[1])}, {"$set": {"limit": int(p[2])}}, upsert=True
+    )
     await m.reply(f"User `{p[1]}` → `{p[2]}`")
 
 
@@ -424,7 +516,10 @@ async def on_share(c, m):
 
     ok, link = await force_sub(m.from_user.id)
     if not ok:
-        return await m.reply(f"Join first.\n👉 [Join Here]({link})", disable_web_page_preview=True)
+        return await m.reply(
+            f"Join first.\n👉 [Join Here]({link})",
+            disable_web_page_preview=True,
+        )
     if not user_has_quota(m.from_user.id):
         return await m.reply("Usage limit reached.")
     if not check_global():
@@ -438,11 +533,11 @@ async def on_share(c, m):
     except asyncio.TimeoutError:
         pending.pop(m.from_user.id, None)
         return await st.edit("⏱️ Timed out.")
-    except RuntimeError as e:
-        return await _share_fallback(st, m, cid, title, str(e))
     except NoActiveGroupCall:
         pending.pop(m.from_user.id, None)
         return await st.edit(f"⚠️ No active call in `{title}`.")
+    except RuntimeError as e:
+        return await _share_fallback(st, m, cid, title, str(e))
 
     if not ip:
         pending.pop(m.from_user.id, None)
@@ -462,27 +557,52 @@ async def on_share(c, m):
 
 
 async def _share_fallback(st, m, cid, title, err):
-    if any(x in err for x in ("USER_NOT_PARTICIPANT", "CHAT_WRITE_FORBIDDEN",
-                               "CHANNEL_INVALID", "CHAT_ID_INVALID", "PEER_ID_INVALID")):
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔗 Send Invite Link",
-                callback_data=f"inv:{m.from_user.id}",
-                style=KeyboardButtonStyle(bg_primary=True))],
-            [InlineKeyboardButton("🔑 Use My Session",
-                callback_data=f"ses:{m.from_user.id}",
-                style=KeyboardButtonStyle(bg_danger=True))],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"can:{m.from_user.id}")],
-        ])
+    if any(
+        x in err
+        for x in (
+            "USER_NOT_PARTICIPANT",
+            "CHAT_WRITE_FORBIDDEN",
+            "CHANNEL_INVALID",
+            "CHAT_ID_INVALID",
+            "PEER_ID_INVALID",
+        )
+    ):
+        kb = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🔗 Send Invite Link",
+                        callback_data=f"inv:{m.from_user.id}",
+                        style=ButtonStyle.PRIMARY,
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "🔑 Use My Session",
+                        callback_data=f"ses:{m.from_user.id}",
+                        style=ButtonStyle.DANGER,
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "❌ Cancel",
+                        callback_data=f"can:{m.from_user.id}",
+                    )
+                ],
+            ]
+        )
         return await st.edit(
             f"❌ **Assistant not in `{title}`**\n\nChoose:",
-            reply_markup=kb, parse_mode=enums.ParseMode.MARKDOWN,
+            reply_markup=kb,
+            parse_mode=enums.ParseMode.MARKDOWN,
         )
     return await st.edit(f"❌ Failed: `{redact(err)}`")
 
 
 @bot.on_callback_query(filters.regex(r"^(inv|ses|can):(\d+)$") & filters.private)
 async def cb(c, q):
-    action, uid = q.data.split(":"); uid = int(uid)
+    action, uid = q.data.split(":")
+    uid = int(uid)
     if q.from_user.id != uid:
         return await q.answer("Not your button.", show_alert=True)
     st = pending.get(uid)
@@ -501,11 +621,15 @@ async def cb(c, q):
     return await q.answer()
 
 
-@bot.on_message(filters.private & filters.text & ~filters.command(["start", "getip", "approve"]))
+@bot.on_message(
+    filters.private & filters.text & ~filters.command(["start", "getip", "approve", "help"])
+)
 async def fallback_text(c, m):
-    if not m.from_user: return
+    if not m.from_user:
+        return
     st = pending.get(m.from_user.id)
-    if not st or not st.get("stage"): return
+    if not st or not st.get("stage"):
+        return
     cid, title, stage = st["chat_id"], st.get("title", ""), st.pop("stage")
 
     if stage == "invite":
@@ -546,15 +670,22 @@ async def fallback_text(c, m):
         stt = await m.reply("⏳ Using session…")
         ua = uc = None
         try:
-            ua = Client(f"temp_{m.from_user.id}", api_id=API_ID, api_hash=API_HASH, session_string=sess)
+            ua = Client(
+                f"temp_{m.from_user.id}",
+                api_id=API_ID,
+                api_hash=API_HASH,
+                session_string=sess,
+            )
             await ua.start()
             uc = PyTgCalls(ua)
             await uc.start()
             task = asyncio.create_task(capture_ip())
             await uc.play(cid, config=GroupCallConfig(auto_start=False))
             ip, port = await task
-            try: await uc.leave_call(cid)
-            except Exception: pass
+            try:
+                await uc.leave_call(cid)
+            except Exception:
+                pass
             if ip:
                 bump_usage(m.from_user.id)
                 await stt.edit(
@@ -568,21 +699,28 @@ async def fallback_text(c, m):
             await stt.edit(f"❌ {redact(str(e))}")
         finally:
             try:
-                if uc: await uc.leave_call(cid)
-            except Exception: pass
+                if uc:
+                    await uc.leave_call(cid)
+            except Exception:
+                pass
             try:
-                if ua: await ua.stop()
-            except Exception: pass
-            for f in __import__("pathlib").Path(".").glob(f"temp_{m.from_user.id}*.session*"):
-                try: f.unlink()
-                except Exception: pass
+                if ua:
+                    await ua.stop()
+            except Exception:
+                pass
+            for f in Path(".").glob(f"temp_{m.from_user.id}*.session*"):
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
             pending.pop(m.from_user.id, None)
 
 
 @bot.on_message(filters.command("getip"))
 @rate_limited
 async def getip_cmd(c, m):
-    if not m.from_user: return
+    if not m.from_user:
+        return
     parts = m.text.split()
     if len(parts) < 2:
         return await m.reply("Usage: `/getip <chat_id_or_link> [session]`")
@@ -590,7 +728,10 @@ async def getip_cmd(c, m):
         return await m.reply("🚦 Bot busy. Try in a minute.")
     ok, link = await force_sub(m.from_user.id)
     if not ok:
-        return await m.reply(f"Join first.\n👉 [Join Here]({link})", disable_web_page_preview=True)
+        return await m.reply(
+            f"Join first.\n👉 [Join Here]({link})",
+            disable_web_page_preview=True,
+        )
     if not user_has_quota(m.from_user.id):
         return await m.reply("Usage limit reached.")
 
@@ -613,7 +754,8 @@ async def getip_cmd(c, m):
         else:
             return await m.reply("Could not resolve link.")
     else:
-        try: target = int(target)
+        try:
+            target = int(target)
         except ValueError:
             return await m.reply("Invalid chat id.")
 
@@ -625,15 +767,22 @@ async def getip_cmd(c, m):
         st = await m.reply("⏳ Using session…")
         ua = uc = None
         try:
-            ua = Client(f"temp_{m.from_user.id}", api_id=API_ID, api_hash=API_HASH, session_string=sess)
+            ua = Client(
+                f"temp_{m.from_user.id}",
+                api_id=API_ID,
+                api_hash=API_HASH,
+                session_string=sess,
+            )
             await ua.start()
             uc = PyTgCalls(ua)
             await uc.start()
             task = asyncio.create_task(capture_ip())
             await uc.play(target, config=GroupCallConfig(auto_start=False))
             ip, port = await task
-            try: await uc.leave_call(target)
-            except Exception: pass
+            try:
+                await uc.leave_call(target)
+            except Exception:
+                pass
             if not ip:
                 return await st.edit("⚠️ No active call.")
             bump_usage(m.from_user.id)
@@ -646,14 +795,20 @@ async def getip_cmd(c, m):
             return await st.edit(f"❌ {redact(str(e))}")
         finally:
             try:
-                if uc: await uc.leave_call(target)
-            except Exception: pass
+                if uc:
+                    await uc.leave_call(target)
+            except Exception:
+                pass
             try:
-                if ua: await ua.stop()
-            except Exception: pass
-            for f in __import__("pathlib").Path(".").glob(f"temp_{m.from_user.id}*.session*"):
-                try: f.unlink()
-                except Exception: pass
+                if ua:
+                    await ua.stop()
+            except Exception:
+                pass
+            for f in Path(".").glob(f"temp_{m.from_user.id}*.session*"):
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
 
     st = await m.reply("⏳ Capturing…")
     try:
@@ -664,8 +819,16 @@ async def getip_cmd(c, m):
         return await st.edit("⚠️ No active call.")
     except RuntimeError as e:
         err = str(e)
-        if any(x in err for x in ("USER_NOT_PARTICIPANT", "CHAT_WRITE_FORBIDDEN",
-                                   "CHANNEL_INVALID", "CHAT_ID_INVALID", "PEER_ID_INVALID")):
+        if any(
+            x in err
+            for x in (
+                "USER_NOT_PARTICIPANT",
+                "CHAT_WRITE_FORBIDDEN",
+                "CHANNEL_INVALID",
+                "CHAT_ID_INVALID",
+                "PEER_ID_INVALID",
+            )
+        ):
             return await st.edit(f"❌ Assistant not in group.\n\n{FAILURE}")
         return await st.edit(f"❌ {redact(err)}")
 
