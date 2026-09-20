@@ -1,3 +1,7 @@
-pyrogram
-pytgcalls
-pymongo
+pyrogram==2.0.106
+kurigram==2.1.38
+py-tgcalls==2.2.4
+pymongo==4.6.3
+python-dotenv==1.0.1
+cachetools==5.3.3
+tgcrypto==1.2.5
